@@ -13,6 +13,7 @@ from tqdm import tqdm, trange  #for progress bars
 from torch.optim import AdamW
 import pandas as pd
 import io
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -43,8 +44,10 @@ except Exception as e:
     print(traceback.format_exc())
 
 tokenized_texts = [tokenizer.tokenize(sent) for sent in sentences]
-print ("Tokenize the first sentence:")
-print (tokenized_texts[0])
+
+print("Tokenized texts:")
+for tt in tokenized_texts[:10]:
+    print(tt)
 
 # Set the maximum sequence length. The longest sequence in our training set is 47, but we'll leave room on the end anyway.
 # In the original paper, the authors used a length of 512.
@@ -53,22 +56,33 @@ MAX_LEN = 128
 # Use the BERT tokenizer to convert the tokens to their index numbers in the BERT vocabulary
 input_ids = [tokenizer.convert_tokens_to_ids(x) for x in tokenized_texts]
 
+print("Input indices:")
+for tt in input_ids[:10]:
+    print(tt)
+
 # Pad our input tokens
 input_ids = pad_sequences(input_ids, maxlen=MAX_LEN, dtype="long", truncating="post", padding="post")
+
+print("Input indices (padded):")
+for tt in input_ids[:10]:
+    print(tt)
+
+sys.exit(0)
 
 attention_masks = []
 
 # Create a mask of 1s for each token followed by 0s for padding
 for seq in input_ids:
-  seq_mask = [float(i>0) for i in seq]
-  attention_masks.append(seq_mask)
+    seq_mask = [float(i > 0) for i in seq]
+    attention_masks.append(seq_mask)
 
 # Use train_test_split to split our data into train and validation sets for training
 
-train_inputs, validation_inputs, train_labels, validation_labels = train_test_split(input_ids, labels,
-                                                            random_state=2018, test_size=0.1)
-train_masks, validation_masks, _, _ = train_test_split(attention_masks, input_ids,
-                                             random_state=2018, test_size=0.1)
+train_inputs, validation_inputs, train_labels, validation_labels = train_test_split(
+    input_ids, labels, random_state=2018, test_size=0.1)
+
+train_masks, validation_masks, _, _ = train_test_split(
+    attention_masks, input_ids, random_state=2018, test_size=0.1)
 
 # Torch tensors are the required datatype for our model
 
@@ -372,6 +386,8 @@ for i in range(len(true_labels)):
 
   # Add the result to our list
   matthews_set.append(matthews)
+
+print(matthews_set)
 
 # Now matthews_set contains the Matthews correlation coefficient for each batch
 
