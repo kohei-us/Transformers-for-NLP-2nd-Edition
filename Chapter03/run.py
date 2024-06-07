@@ -260,3 +260,142 @@ plt.xlabel("Batch")
 plt.ylabel("Loss")
 plt.plot(train_loss_set)
 plt.show()
+
+#loading the holdout dataset
+df = pd.read_csv("out_of_domain_dev.tsv", delimiter='\t', header=None, names=['sentence_source', 'label', 'label_notes', 'sentence'])
+
+# Create sentence and label lists
+sentences = df.sentence.values
+
+# We need to add special tokens at the beginning and end of each sentence for BERT to work properly
+sentences = ["[CLS] " + sentence + " [SEP]" for sentence in sentences]
+labels = df.label.values
+
+tokenized_texts = [tokenizer.tokenize(sent) for sent in sentences]
+
+
+MAX_LEN = 128
+
+# Use the BERT tokenizer to convert the tokens to their index numbers in the BERT vocabulary
+input_ids = [tokenizer.convert_tokens_to_ids(x) for x in tokenized_texts]
+# Pad our input tokens
+input_ids = pad_sequences(input_ids, maxlen=MAX_LEN, dtype="long", truncating="post", padding="post")
+# Create attention masks
+attention_masks = []
+
+# Create a mask of 1s for each token followed by 0s for padding
+for seq in input_ids:
+  seq_mask = [float(i>0) for i in seq]
+  attention_masks.append(seq_mask)
+
+prediction_inputs = torch.tensor(input_ids)
+prediction_masks = torch.tensor(attention_masks)
+prediction_labels = torch.tensor(labels)
+
+batch_size = 32
+
+
+prediction_data = TensorDataset(prediction_inputs, prediction_masks, prediction_labels)
+prediction_sampler = SequentialSampler(prediction_data)
+prediction_dataloader = DataLoader(prediction_data, sampler=prediction_sampler, batch_size=batch_size)
+
+#Softmax logits
+import numpy as np
+
+def softmax(logits):
+    e = np.exp(logits)
+    return e / np.sum(e)
+
+#
+import torch
+import numpy as np
+
+# Put model in evaluation mode
+model.eval()
+
+# Tracking variables
+raw_predictions, predicted_classes, true_labels = [], [], []
+
+# Predict
+for batch in prediction_dataloader:
+  # Add batch to GPU
+  batch = tuple(t.to(device) for t in batch)
+  # Unpack the inputs from our dataloader
+  b_input_ids, b_input_mask, b_labels = batch
+  # Telling the model not to compute or store gradients, saving memory and speeding up prediction
+  with torch.no_grad():
+    # Forward pass, calculate logit predictions
+    outputs = model(b_input_ids, token_type_ids=None, attention_mask=b_input_mask)
+
+  # Move logits and labels to CPU
+  logits = outputs['logits'].detach().cpu().numpy()
+  label_ids = b_labels.to('cpu').numpy()
+
+  # Convert input_ids back to words
+  b_input_ids = b_input_ids.to('cpu').numpy()
+  batch_sentences = [tokenizer.decode(input_ids, skip_special_tokens=True) for input_ids in b_input_ids]
+
+  # Apply softmax function to convert logits into probabilities
+  probabilities = torch.nn.functional.softmax(torch.tensor(logits), dim=-1)
+
+  # The predicted class is the one with the highest probability
+  batch_predictions = np.argmax(probabilities, axis=1)
+
+  # Print the sentences and the corresponding predictions for this batch
+  for i, sentence in enumerate(batch_sentences):
+    print(f"Sentence: {sentence}")
+    print(f"Prediction: {logits[i]}")
+    print(f"Sofmax probabilities", softmax(logits[i]))
+    print(f"Prediction: {batch_predictions[i]}")
+    print(f"True label: {label_ids[i]}")
+
+  # Store raw predictions, predicted classes and true labels
+  raw_predictions.append(logits)
+  predicted_classes.append(batch_predictions)
+  true_labels.append(label_ids)
+
+#
+from sklearn.metrics import matthews_corrcoef
+
+# Initialize an empty list to store the Matthews correlation coefficient for each batch
+matthews_set = []
+
+# Iterate over each batch
+for i in range(len(true_labels)):
+  # Calculate the Matthews correlation coefficient for this batch
+
+  # true_labels[i] are the true labels for this batch
+  # predicted_classes[i] are the predicted classes for this batch
+  # We don't need to use np.argmax because predicted_classes already contains the predicted classes
+
+  matthews = matthews_corrcoef(true_labels[i], predicted_classes[i])
+
+  # Add the result to our list
+  matthews_set.append(matthews)
+
+# Now matthews_set contains the Matthews correlation coefficient for each batch
+
+from sklearn.metrics import matthews_corrcoef
+
+# Flatten the true_labels and predicted_classes list of lists into single lists
+true_labels_flattened = [label for batch in true_labels for label in batch]
+predicted_classes_flattened = [pred for batch in predicted_classes for pred in batch]
+
+# Calculate the MCC for the entire set of predictions
+mcc = matthews_corrcoef(true_labels_flattened, predicted_classes_flattened)
+
+print(f"MCC: {mcc}")
+
+# Specify a directory to save your model and tokenizer
+from pathlib import Path
+save_directory = Path(__file__).parent / "model"
+
+
+# If your model is wrapped in DataParallel, access the original model using .module and then save
+if isinstance(model, torch.nn.DataParallel):
+    model.module.save_pretrained(save_directory)
+else:
+    model.save_pretrained(save_directory)
+
+# Save the tokenizer
+tokenizer.save_pretrained(save_directory)
