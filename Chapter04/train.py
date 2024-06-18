@@ -88,7 +88,7 @@ from transformers import Trainer, TrainingArguments
 training_args = TrainingArguments(
     output_dir="./KantaiBERT",
     overwrite_output_dir=True,
-    num_train_epochs=1, #can be increased
+    num_train_epochs=2, #can be increased
     per_device_train_batch_size=64,
     save_steps=10_000,
     save_total_limit=2,
